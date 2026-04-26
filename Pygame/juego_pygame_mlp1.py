@@ -113,6 +113,11 @@ class Juego:
         self.frame_speed   = 10
         self.frame_count   = 0
 
+        # Animación del agachado
+        self.agach_frame       = 0
+        self.agach_frame_count = 0
+        self.agach_frame_speed = 4
+
         # Bala
         self.velocidad_bala = -12
         self.bala_disparada = False
@@ -141,7 +146,7 @@ class Juego:
         self.ship_size   = (int(64 * self.scale), int(64 * self.scale))
         self.fondo_speed = max(1, int(2 * self.scale))
 
-        self.salto_vel_inicial = 11 * self.scale
+        self.salto_vel_inicial = 12 * self.scale
         self.gravedad  = 1  * self.scale
         self.salto_vel = self.salto_vel_inicial
 
@@ -188,16 +193,12 @@ class Juego:
             safe_load(os.path.join(base, "assets/sprites/sonic4.png"), self.player_size),
         ]
         # Frame agachado: recortamos el sprite normal a la mitad inferior
-        frame_base = self.jugador_frames[0]
-        agach_surf = pygame.Surface(self.player_size_agach, pygame.SRCALPHA)
-        src_rect = pygame.Rect(
-            0,
-            self.player_size[1] - self.player_size_agach[1],
-            self.player_size_agach[0],
-            self.player_size_agach[1],
-        )
-        agach_surf.blit(frame_base, (0, 0), src_rect)
-        self.jugador_frame_agach = agach_surf
+        self.jugador_frames_agach = [
+            safe_load(os.path.join(base, "assets/sprites/spin1.png"), self.player_size_agach),
+            safe_load(os.path.join(base, "assets/sprites/spin2.png"), self.player_size_agach),
+            safe_load(os.path.join(base, "assets/sprites/spin3.png"), self.player_size_agach),
+            safe_load(os.path.join(base, "assets/sprites/spin4.png"), self.player_size_agach),
+        ]
 
         self.bala_img = safe_load(
             os.path.join(base, "assets/sprites/purple_ball.png"),
@@ -592,8 +593,11 @@ class Juego:
             self.frame_count   = 0
 
         if self.agachado:
-            # Dibujar sprite agachado (parte baja del sprite)
-            self.pantalla.blit(self.jugador_frame_agach, (self.jugador.x, self.jugador.y))
+            self.agach_frame_count += 1
+            if self.agach_frame_count >= self.agach_frame_speed:
+                self.agach_frame = (self.agach_frame + 1) % len(self.jugador_frames_agach)
+                self.agach_frame_count = 0
+            self.pantalla.blit(self.jugador_frames_agach[self.agach_frame], (self.jugador.x, self.jugador.y))
         else:
             self.pantalla.blit(self.jugador_frames[self.current_frame], (self.jugador.x, self.jugador.y))
 
