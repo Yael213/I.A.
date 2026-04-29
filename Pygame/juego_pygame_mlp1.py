@@ -36,16 +36,19 @@ ACCION_NADA    = 0
 ACCION_SALTO   = 1
 ACCION_AGACHAR = 2
 
-# Tipo de bala
-BALA_BAJA = 0   # al nivel del suelo  → esquivar saltando
-BALA_ALTA = 1   # a media altura      → esquivar agachándose
+# Tipo de bala — 3 alturas (indices consecutivos: 0, 1, 2)
+BALA_SUELO      = 0   # rasa al suelo               -> saltar
+BALA_MEDIA_BAJA = 1   # un cuarto de altura          -> saltar
+BALA_ALTA       = 2   # tres cuartos de altura       -> agacharse
+
+BALA_BAJA = BALA_SUELO  # alias de compatibilidad
 
 
 @dataclass
 class Sample:
     velocidad_bala: float
     distancia: float
-    tipo_bala: int    # BALA_BAJA o BALA_ALTA
+    tipo_bala: int    # 0=SUELO, 1=MEDIA_BAJA, 2=MEDIA_ALTA, 3=ALTA
     accion: int       # ACCION_NADA / ACCION_SALTO / ACCION_AGACHAR
 
 
@@ -121,7 +124,7 @@ class Juego:
         # Bala
         self.velocidad_bala = -12
         self.bala_disparada = False
-        self.tipo_bala_actual = BALA_BAJA
+        self.tipo_bala_actual = BALA_SUELO
 
         self.fondo_x1 = 0
         self.fondo_x2 = start_w
@@ -200,17 +203,15 @@ class Juego:
             safe_load(os.path.join(base, "assets/sprites/spin4.png"), self.player_size_agach),
         ]
 
-        self.bala_img = safe_load(
-            os.path.join(base, "assets/sprites/purple_ball.png"),
-            self.bullet_size,
-            (160, 120, 255, 255),
-        )
-        # Bala alta: color diferente para distinguirla visualmente
-        self.bala_alta_img = safe_load(
-            os.path.join(base, "assets/sprites/purple_ball.png"),
-            self.bullet_size,
-            (255, 120, 120, 255),
-        )
+        self.bala_imgs = [
+            # BALA_SUELO (0)      - azul claro
+            safe_load(os.path.join(base, "assets/sprites/purple_ball.png"), self.bullet_size, (100, 180, 255, 255)),
+            # BALA_MEDIA_BAJA (1) - morado
+            safe_load(os.path.join(base, "assets/sprites/purple_ball.png"), self.bullet_size, (160, 120, 255, 255)),
+            # BALA_ALTA (2)       - rojo
+            safe_load(os.path.join(base, "assets/sprites/purple_ball.png"), self.bullet_size, (255,  80,  80, 255)),
+        ]
+        self.bala_img = self.bala_imgs[0]
         self.fondo_img = safe_load(
             os.path.join(base, "assets/game/fondo2.png"),
             (self.w, self.h),
@@ -244,7 +245,7 @@ class Juego:
         self.bala.y = self.ground_y + int(10 * self.scale)
         self.bala_disparada = False
         self.velocidad_bala = int(-10 * self.scale)
-        self.tipo_bala_actual = BALA_BAJA
+        self.tipo_bala_actual = BALA_SUELO
         self.salto    = False
         self.en_suelo = True
         self.salto_vel = self.salto_vel_inicial
@@ -339,22 +340,30 @@ class Juego:
             self.velocidad_bala = int(random.randint(-12, -6) * self.scale)
             self.bala_disparada = True
 
-            # Decidir tipo de bala aleatoriamente
-            self.tipo_bala_actual = random.choice([BALA_BAJA, BALA_ALTA])
+            # Decidir una de las 3 alturas aleatoriamente
+            self.tipo_bala_actual = random.choice([
+                BALA_SUELO,
+                BALA_MEDIA_BAJA,
+                BALA_ALTA,
+            ])
 
-            if self.tipo_bala_actual == BALA_BAJA:
-                # Bala a nivel del suelo (igual que antes)
+            ph = self.player_size[1]  # altura total del personaje
+            if self.tipo_bala_actual == BALA_SUELO:
+                # Rasa al suelo - saltar
                 self.bala.y = self.ground_y + int(18 * self.scale)
-            else:
-                # Bala alta: a media altura del personaje (hay que agacharse)
-                self.bala.y = self.ground_y - int(self.player_size[1] * 0.22)
+            elif self.tipo_bala_actual == BALA_MEDIA_BAJA:
+                # Un cuarto de la altura del jugador - saltar (con mas margen)
+                self.bala.y = self.ground_y - int(ph * 0.25)
+            else:  # BALA_ALTA (2)
+                # Tres cuartos de la altura - agacharse
+                self.bala.y = self.ground_y - int(ph * 0.75)
 
             self.bala.x = self.w - self.margin
 
     def reset_bala(self) -> None:
         self.bala.x = self.w - self.margin
         self.bala_disparada = False
-        self.tipo_bala_actual = BALA_BAJA
+        self.tipo_bala_actual = BALA_SUELO
 
     def iniciar_salto(self) -> None:
         if self.en_suelo and not self.agachado:
@@ -391,6 +400,10 @@ class Juego:
                 self.jugador.y      = self.ground_y
 
     # ----------------- datos / ML -----------------
+    # Balas que se esquivan saltando vs agachándose
+    BALAS_SALTAR  = (BALA_SUELO, BALA_MEDIA_BAJA)
+    BALAS_AGACHAR = (BALA_ALTA,)
+
     def registrar_decision_manual(self) -> None:
         if not self.bala_disparada:
             return
@@ -471,12 +484,12 @@ class Juego:
         if self.modelo is None or self.scaler is None:
             return ACCION_NADA
 
+        # tipo_bala_actual ahora va de 0 a 3 — el scaler lo normaliza igual
         X  = [[float(self.velocidad_bala), float(distancia), float(self.tipo_bala_actual)]]
         Xs = self.scaler.transform(X)
 
         if hasattr(self.modelo, "predict_proba"):
             probas = self.modelo.predict_proba(Xs)[0]
-            # Mapear probas a las clases reales que el modelo conoce
             clases = list(self.modelo.classes_)
             proba_vec = [0.0, 0.0, 0.0]
             for i, c in enumerate(clases):
@@ -609,8 +622,8 @@ class Juego:
         if self.bala.x < -self.bullet_size[0]:
             self.reset_bala()
 
-        # Dibujar bala con color según tipo
-        bala_img = self.bala_alta_img if self.tipo_bala_actual == BALA_ALTA else self.bala_img
+        # Dibujar bala con color según altura
+        bala_img = self.bala_imgs[self.tipo_bala_actual]
         self.pantalla.blit(bala_img, (self.bala.x, self.bala.y))
 
         # Colisión
@@ -635,8 +648,14 @@ class Juego:
         # Indicador visual del estado actual
         if not self.modo_auto:
             estado_str = "AGACHADO" if self.agachado else ("SALTANDO" if self.salto else "suelo")
-            tipo_str   = "bala ALTA (agacha)" if self.tipo_bala_actual == BALA_ALTA else "bala BAJA (salta)"
-            color_tipo = (255, 120, 120) if self.tipo_bala_actual == BALA_ALTA else (120, 200, 255)
+            nombres_bala = {
+                BALA_SUELO:      ("bala SUELO -> saltar",      (100, 180, 255)),
+                BALA_MEDIA_BAJA: ("bala MEDIA-BAJA -> saltar", (160, 120, 255)),
+                BALA_ALTA:       ("bala ALTA -> agachar",      (255,  80,  80)),
+            }
+            tipo_str, color_tipo = nombres_bala.get(
+                self.tipo_bala_actual, ("bala ?", (200, 200, 200))
+            )
             s1 = self.fuente_chica.render(f"Estado: {estado_str}", True, self.GRIS)
             s2 = self.fuente_chica.render(tipo_str, True, color_tipo)
             self.pantalla.blit(s1, (10, y));  y += self.fuente_chica.get_linesize() + 2
