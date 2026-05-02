@@ -41,6 +41,7 @@ BALA_SUELO      = 0   # rasa al suelo               -> saltar
 BALA_MEDIA_BAJA = 1   # un cuarto de altura          -> saltar
 BALA_ALTA       = 2   # tres cuartos de altura       -> agacharse
 
+
 BALA_BAJA = BALA_SUELO  # alias de compatibilidad
 
 
@@ -381,23 +382,22 @@ class Juego:
                 self.en_suelo  = True
 
     def iniciar_agache(self) -> None:
-        """Activa el agache si el jugador está en el suelo y no está saltando."""
-        if self.en_suelo and not self.salto:
-            if not self.agachado:
-                self.agachado       = True
-                self.agachado_timer = self.AGACHADO_FRAMES
-                # Reducir hitbox: el jugador "se encoge" hacia abajo
-                self.jugador.height = self.player_size_agach[1]
-                self.jugador.y      = self.ground_y + (self.player_size[1] - self.player_size_agach[1])
+        """Activa el agache mientras el jugador este en el suelo y no saltando."""
+        if self.en_suelo and not self.salto and not self.agachado:
+            self.agachado       = True
+            self.jugador.height = self.player_size_agach[1]
+            self.jugador.y      = self.ground_y + (self.player_size[1] - self.player_size_agach[1])
+
+    def terminar_agache(self) -> None:
+        """Restaura el tamano normal al soltar la tecla o cuando la IA deja de agacharse."""
+        if self.agachado:
+            self.agachado       = False
+            self.jugador.height = self.player_size[1]
+            self.jugador.y      = self.ground_y
 
     def manejar_agache(self) -> None:
-        """Decrementa el timer del agache y restaura el tamaño cuando termina."""
-        if self.agachado:
-            self.agachado_timer -= 1
-            if self.agachado_timer <= 0:
-                self.agachado       = False
-                self.jugador.height = self.player_size[1]
-                self.jugador.y      = self.ground_y
+        """Sin timer: el agache dura mientras se mantenga activo."""
+        pass
 
     # ----------------- datos / ML -----------------
     # Balas que se esquivan saltando vs agachándose
@@ -681,9 +681,12 @@ class Juego:
                         # Saltar: ESPACIO
                         if e.key == pygame.K_SPACE and self.en_suelo and not self.agachado:
                             self.iniciar_salto()
-                        # Agacharse: flecha abajo o S
+                        # Agacharse: flecha abajo o S (al presionar)
                         elif e.key in (pygame.K_DOWN, pygame.K_s) and self.en_suelo and not self.salto:
                             self.iniciar_agache()
+                elif e.type == pygame.KEYUP and not self.modo_auto:
+                    if e.key in (pygame.K_DOWN, pygame.K_s):
+                        self.terminar_agache()
 
             if not self.corriendo:
                 break
@@ -692,9 +695,12 @@ class Juego:
             if self.modo_auto:
                 accion = self.decision_auto()
                 if accion == ACCION_SALTO:
+                    self.terminar_agache()
                     self.iniciar_salto()
                 elif accion == ACCION_AGACHAR:
                     self.iniciar_agache()
+                else:  # ACCION_NADA
+                    self.terminar_agache()
             else:
                 # Registrar decisión manual para entrenamiento
                 self.registrar_decision_manual()
