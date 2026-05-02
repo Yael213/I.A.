@@ -81,7 +81,6 @@ class Juego:
         self.modelo: Optional[MLPClassifier] = None
         self.scaler: Optional[StandardScaler] = None
         self.modelo_entrenado = False
-        self.clase_unica: Optional[int] = None
         self.ultima_proba: Optional[list] = None   # [p_nada, p_salto, p_agachar]
 
         # Parámetros de decisión
@@ -260,7 +259,6 @@ class Juego:
         self.modelo = None
         self.scaler = None
         self.modelo_entrenado = False
-        self.clase_unica = None
 
     # ----------------- export / gráficas -----------------
     def exportar_datos_csv(self) -> str:
@@ -436,11 +434,23 @@ class Juego:
 
         clases = sorted(set(y))
         if len(clases) < 2:
+            # Solo una clase: entrenamos el MLP igualmente (sin split ni stratify)
+            scaler = StandardScaler()
+            X_scaled = scaler.fit_transform(X)
+            clf = MLPClassifier(
+                hidden_layer_sizes=(16, 8),
+                activation="relu",
+                solver="adam",
+                max_iter=300000,
+                random_state=42,
+            )
+            clf.fit(X_scaled, y)
             self._reset_modelo()
-            self.clase_unica = int(clases[0])
+            self.scaler = scaler
+            self.modelo = clf
             self.modelo_entrenado = True
             nombres = {0: "NADA", 1: "SALTO", 2: "AGACHAR"}
-            return True, f"Modelo trivial: siempre {nombres.get(self.clase_unica,'?')}. Juega más para obtener variedad."
+            return True, f"MLP entrenado (solo clase {nombres.get(clases[0], '?')}). Accuracy = 1.000"
 
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=0.2, random_state=42, stratify=y
@@ -476,10 +486,6 @@ class Juego:
             return ACCION_NADA
 
         distancia = abs(self.jugador.x - self.bala.x)
-
-        # Caso trivial (una sola clase observada)
-        if self.clase_unica is not None and self.modelo is None:
-            return self.clase_unica
 
         if self.modelo is None or self.scaler is None:
             return ACCION_NADA
